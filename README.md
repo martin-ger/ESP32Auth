@@ -1,4 +1,4 @@
-# BLE FIFO Authenticator
+# BLE FIDO Authenticator
 
 (Up to now only BLE interface, no functionality)
 
