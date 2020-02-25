@@ -26,12 +26,21 @@
 #include "services/gatt/ble_svc_gatt.h"
 #include "bleprph.h"
 
+#define gatt_svr_scv_device_information_uuid 0x180A
+#define gatt_svr_chr_manufacturer_name_string_uuid 0x2A29
+#define gatt_svr_chr_model_number_string_uuid 0x2A24
+#define gatt_svr_chr_firmware_revision_string_uuid 0x2A26
+
+#define MANUFACTURER_NAME "Espressif"
+#define MODEL_NUMBER "ESP32"
+#define FIRMWARE_REVISION "0.1.0"
+
 /**
  * Defines from the FIDO Bluetooth Specification v1.0
  */
 
 #define gatt_svr_scv_fifo_uuid 0xfffd
-#
+
 /* F1D0FFF1-DEAA-ECEE-B42F-C9BA7ED623BB */
 static const ble_uuid128_t gatt_svr_chr_u2fControlPoint_uuid =
     BLE_UUID128_INIT(0xbb, 0x23, 0xd6, 0x7e, 0xba, 0xc9, 0x2f, 0xb4,
@@ -57,7 +66,12 @@ static const ble_uuid128_t gatt_svr_chr_u2fServiceRevisionBitfield_uuid =
 static const uint8_t gatt_svr_sec_test_static_val;
 
 static int
-gatt_svr_chr_access_sec_test(uint16_t conn_handle, uint16_t attr_handle,
+gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
+                             struct ble_gatt_access_ctxt *ctxt,
+                             void *arg);
+
+static int
+gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt,
                              void *arg);
 
@@ -70,29 +84,55 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
         { {
                 /*** Characteristic: U2F Control Point. */
                 .uuid = &gatt_svr_chr_u2fControlPoint_uuid.u,
-                .access_cb = gatt_svr_chr_access_sec_test,
+                .access_cb = gatt_svr_chr_access_fido,
                 .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             }, {
                 /*** Characteristic: U2F Status. */
                 .uuid = &gatt_svr_chr_u2fStatus_uuid.u,
-                .access_cb = gatt_svr_chr_access_sec_test,
+                .access_cb = gatt_svr_chr_access_fido,
                 .flags = BLE_GATT_CHR_F_NOTIFY,
             }, {
                 /*** Characteristic: U2F Control Point Length. */
                 .uuid = &gatt_svr_chr_u2fControlPointLength_uuid.u,
-                .access_cb = gatt_svr_chr_access_sec_test,
+                .access_cb = gatt_svr_chr_access_fido,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
             }, {
                 /*** Characteristic: U2F Service Revision. */
                 .uuid = BLE_UUID16_DECLARE(gatt_svr_chr_u2fServiceRevision_uuid),
-                .access_cb = gatt_svr_chr_access_sec_test,
+                .access_cb = gatt_svr_chr_access_fido,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
             }, {
                 /*** Characteristic: U2F Service Revision Bitfield. */
                 .uuid = &gatt_svr_chr_u2fServiceRevisionBitfield_uuid.u,
-                .access_cb = gatt_svr_chr_access_sec_test,
+                .access_cb = gatt_svr_chr_access_fido,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC | 
                          BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
+            }, {
+                0, /* No more characteristics in this service. */
+            }
+        },
+    },
+
+    {
+        /*** Service: Device Information. */
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(gatt_svr_scv_device_information_uuid),
+        .characteristics = (struct ble_gatt_chr_def[])
+        { {
+                /*** Characteristic: Manufacturer Name String. */
+                .uuid = BLE_UUID16_DECLARE(gatt_svr_chr_manufacturer_name_string_uuid),
+                .access_cb = gatt_svr_chr_access_device_info,
+               .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
+            }, {
+                /*** Characteristic: Model Number String. */
+                .uuid = BLE_UUID16_DECLARE(gatt_svr_chr_model_number_string_uuid),
+                .access_cb = gatt_svr_chr_access_device_info,
+               .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
+            }, {                
+                /*** Characteristic: Firmware Revision String. */
+                .uuid = BLE_UUID16_DECLARE(gatt_svr_chr_firmware_revision_string_uuid),
+                .access_cb = gatt_svr_chr_access_device_info,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
             }, {
                 0, /* No more characteristics in this service. */
             }
@@ -125,7 +165,7 @@ gatt_svr_chr_write(struct os_mbuf *om, uint16_t min_len, uint16_t max_len,
 }
 
 static int
-gatt_svr_chr_access_sec_test(uint16_t conn_handle, uint16_t attr_handle,
+gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt,
                              void *arg)
 {
@@ -179,6 +219,50 @@ gatt_svr_chr_access_sec_test(uint16_t conn_handle, uint16_t attr_handle,
             assert(0);
             return BLE_ATT_ERR_UNLIKELY;
         }
+    }
+
+    /* Unknown characteristic; the nimble stack should not have called this
+     * function.
+     */
+    assert(0);
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static int
+gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
+                             struct ble_gatt_access_ctxt *ctxt,
+                             void *arg)
+{
+    const ble_uuid_t *uuid;
+    char buf[BLE_UUID_STR_LEN];
+    int rc;
+
+    uuid = ctxt->chr->uuid;
+
+    MODLOG_DFLT(INFO, "Access to char %s (handle %d)\n", ble_uuid_to_str(uuid, buf), attr_handle);
+
+    /* Determine which characteristic is being accessed by examining its UUID.
+     */
+
+    if (ble_uuid_cmp(uuid, BLE_UUID16_DECLARE(gatt_svr_chr_manufacturer_name_string_uuid)) == 0) {
+        assert(ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR);
+
+        rc = os_mbuf_append(ctxt->om, MANUFACTURER_NAME, sizeof MANUFACTURER_NAME);
+        return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (ble_uuid_cmp(uuid, BLE_UUID16_DECLARE(gatt_svr_chr_model_number_string_uuid)) == 0) {
+        assert(ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR);
+
+        rc = os_mbuf_append(ctxt->om, MODEL_NUMBER, sizeof MODEL_NUMBER);
+        return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (ble_uuid_cmp(uuid, BLE_UUID16_DECLARE(gatt_svr_chr_firmware_revision_string_uuid)) == 0) {
+        assert(ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR);
+
+        rc = os_mbuf_append(ctxt->om, FIRMWARE_REVISION, sizeof FIRMWARE_REVISION);
+        return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
     /* Unknown characteristic; the nimble stack should not have called this
