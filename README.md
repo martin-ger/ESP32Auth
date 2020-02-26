@@ -24,6 +24,12 @@ idf.py menuconfig
 
 ### Build and Flash
 
+Clone this repository using:
+
+```
+git clone --recurse-submodules https://github.com/martin-ger/ESP32Auth.git
+```
+
 Build the project and flash it to the board, then run monitor tool to view serial output:
 
 ```

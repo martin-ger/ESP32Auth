@@ -29,7 +29,9 @@
 #include "services/gap/ble_svc_gap.h"
 #include "bleprph.h"
 
-static const char *tag = "NimBLE_BLE_PRPH";
+#include "ctaphid.h"
+
+static const char *tag = "ESP32Auth";
 static int bleprph_gap_event(struct ble_gap_event *event, void *arg);
 static uint8_t own_addr_type;
 
@@ -385,5 +387,15 @@ app_main(void)
     rc = scli_init();
     if (rc != ESP_OK) {
         ESP_LOGE(tag, "scli_init() failed");
+    }
+
+    /* no function, just pull solo into the binary */
+    uint8_t hidmsg[64];
+
+    memset(hidmsg,0,sizeof(hidmsg));
+
+    while(1)
+    {
+        ctaphid_handle_packet(hidmsg);
     }
 }
