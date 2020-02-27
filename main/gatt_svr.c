@@ -26,7 +26,6 @@
 #include "services/gatt/ble_svc_gatt.h"
 #include "bleprph.h"
 
-#define gatt_svr_scv_device_information_uuid 0x180A
 #define gatt_svr_chr_manufacturer_name_string_uuid 0x2A29
 #define gatt_svr_chr_model_number_string_uuid 0x2A24
 #define gatt_svr_chr_firmware_revision_string_uuid 0x2A26
@@ -41,8 +40,6 @@ const char* u2fServiceRevision = "1.0";
 /**
  * Defines from the FIDO Bluetooth Specification v1.0
  */
-
-#define gatt_svr_scv_fifo_uuid 0xfffd
 
 /* F1D0FFF1-DEAA-ECEE-B42F-C9BA7ED623BB */
 static const ble_uuid128_t gatt_svr_chr_u2fControlPoint_uuid =

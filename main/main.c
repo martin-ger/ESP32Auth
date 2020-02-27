@@ -107,8 +107,8 @@ bleprph_advertise(void)
     fields.name_is_complete = 1;
 
     fields.uuids16 = (ble_uuid16_t[]) {
-        BLE_UUID16_INIT(GATT_SVR_SVC_FIDO_UUID),
-        BLE_UUID16_INIT(0x180a)
+        BLE_UUID16_INIT(gatt_svr_scv_device_information_uuid),
+        BLE_UUID16_INIT(gatt_svr_scv_fifo_uuid)
     };
     fields.num_uuids16 = 2;
     fields.uuids16_is_complete = 1;
@@ -389,13 +389,6 @@ app_main(void)
         ESP_LOGE(tag, "scli_init() failed");
     }
 
-    /* no function, just pull solo into the binary */
-    uint8_t hidmsg[64];
-
-    memset(hidmsg,0,sizeof(hidmsg));
-
-    while(1)
-    {
-        ctaphid_handle_packet(hidmsg);
-    }
+    /* test user presence, just pull solo into the binary */
+    ctap_user_presence_test(10000);
 }
