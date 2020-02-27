@@ -31,9 +31,12 @@
 #define gatt_svr_chr_model_number_string_uuid 0x2A24
 #define gatt_svr_chr_firmware_revision_string_uuid 0x2A26
 
-#define MANUFACTURER_NAME "Espressif"
-#define MODEL_NUMBER "ESP32"
-#define FIRMWARE_REVISION "0.1.0"
+const char* manufacturer_name =  "Espressif";
+const char* model_number =  "ESP32";
+const char* firmware_revision = "0.1.0";
+
+#define CONTROL_POINT_LENGTH 512
+const char* u2fServiceRevision = "1.0";
 
 /**
  * Defines from the FIDO Bluetooth Specification v1.0
@@ -171,7 +174,6 @@ gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
 {
     const ble_uuid_t *uuid;
     char buf[BLE_UUID_STR_LEN];
-    int rand_num;
     int rc;
 
     uuid = ctxt->chr->uuid;
@@ -195,9 +197,15 @@ gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
     if (ble_uuid_cmp(uuid, &gatt_svr_chr_u2fControlPointLength_uuid.u) == 0) {
         assert(ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR);
 
-        /* Respond with a 32-bit random number. */
-        rand_num = rand();
-        rc = os_mbuf_append(ctxt->om, &rand_num, sizeof rand_num);
+        uint16_t cpl = CONTROL_POINT_LENGTH;
+        rc = os_mbuf_append(ctxt->om, &cpl, sizeof cpl);
+        return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (ble_uuid_cmp(uuid, BLE_UUID16_DECLARE(gatt_svr_chr_u2fServiceRevision_uuid)) == 0) {
+        assert(ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR);
+
+        rc = os_mbuf_append(ctxt->om, u2fServiceRevision, strlen(u2fServiceRevision));
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
@@ -247,21 +255,21 @@ gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
     if (ble_uuid_cmp(uuid, BLE_UUID16_DECLARE(gatt_svr_chr_manufacturer_name_string_uuid)) == 0) {
         assert(ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR);
 
-        rc = os_mbuf_append(ctxt->om, MANUFACTURER_NAME, sizeof MANUFACTURER_NAME);
+        rc = os_mbuf_append(ctxt->om, manufacturer_name, strlen(manufacturer_name));
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
     if (ble_uuid_cmp(uuid, BLE_UUID16_DECLARE(gatt_svr_chr_model_number_string_uuid)) == 0) {
         assert(ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR);
 
-        rc = os_mbuf_append(ctxt->om, MODEL_NUMBER, sizeof MODEL_NUMBER);
+        rc = os_mbuf_append(ctxt->om, model_number, strlen(model_number));
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
     if (ble_uuid_cmp(uuid, BLE_UUID16_DECLARE(gatt_svr_chr_firmware_revision_string_uuid)) == 0) {
         assert(ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR);
 
-        rc = os_mbuf_append(ctxt->om, FIRMWARE_REVISION, sizeof FIRMWARE_REVISION);
+        rc = os_mbuf_append(ctxt->om, firmware_revision, strlen(firmware_revision));
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
