@@ -24,6 +24,7 @@
 #include "host/ble_uuid.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "lwip/def.h"
 #include "bleprph.h"
 
 #define gatt_svr_chr_manufacturer_name_string_uuid 0x2A29
@@ -34,7 +35,7 @@ const char* manufacturer_name =  "Espressif";
 const char* model_number =  "ESP32";
 const char* firmware_revision = "0.1.0";
 
-#define CONTROL_POINT_LENGTH 512
+#define CONTROL_POINT_LENGTH 256
 const char* u2fServiceRevision = "1.0";
 
 /**
@@ -194,7 +195,7 @@ gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
     if (ble_uuid_cmp(uuid, &gatt_svr_chr_u2fControlPointLength_uuid.u) == 0) {
         assert(ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR);
 
-        uint16_t cpl = CONTROL_POINT_LENGTH;
+        uint16_t cpl = htons(CONTROL_POINT_LENGTH);
         rc = os_mbuf_append(ctxt->om, &cpl, sizeof cpl);
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
