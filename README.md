@@ -2,13 +2,15 @@
 
 (Up to now only BLE interface, no functionality)
 
-This example creates GATT server and then starts advertising, waiting to be connected to a GATT client.
+Integrates the solokey/solo project for handling the CTAP stuff.
+
+Creates GATT server and then starts advertising, waiting to be connected to a GATT client.
 
 It uses ESP32's Bluetooth controller and NimBLE stack based BLE host.
 
 SMP parameters like I/O capabilities of device, Bonding flag, MITM protection flag and Secure Connection only mode etc., can be configured through menuconfig options.
 
-To test this demo, any BLE scanner app can be used.
+To test this, any BLE scanner app can be used.
 
 ### Configure the project
 
