@@ -42,6 +42,9 @@ const char* manufacturer_name =  "Espressif";
 const char* model_number =  "ESP32";
 const char* firmware_revision = "0.1.0";
 
+const char* u2fServiceRevision = "1.0";
+#define U2F_SERVICE_REVISION R1_0
+
 static int
 gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt,
@@ -75,15 +78,19 @@ static const ble_uuid128_t gatt_svr_chr_u2fServiceRevisionBitfield_uuid =
 #endif
 
 #define CONTROL_POINT_LENGTH 256
-const char* u2fServiceRevision = "1.0";
-#define U2F_SERVICE_REVISION R1_0
-
 #define MAX_COMMAND_LEN 4096
 
 #define CMD_PING        0x81
 #define CMD_KEEPALIVE   0x82
 #define CMD_MSG         0x83
 #define CMD_ERROR       0xbf
+
+#define ERR_INVALID_CMD	0x01
+#define ERR_INVALID_PAR	0x02
+#define ERR_INVALID_LEN	0x03
+#define ERR_INVALID_SEQ	0x04
+#define ERR_REQ_TIMEOUT	0x05
+#define ERR_OTHER	    0x7f
 
 static int
 gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
@@ -191,7 +198,36 @@ static uint16_t next_frag = 0;
 static uint16_t expected_total_len = 0;
 static uint8_t packet_seqnr = 0;
 static bool expect_fragment = false;
+static uint16_t u2f_connection;
 
+static int
+gatt_svr_send_response(uint8_t resp_status, const uint8_t* resp_data, const uint16_t resp_len)
+{
+    uint16_t u2f_status_attr_handle;
+    uint8_t resp_mesg[resp_len+3];
+
+    MODLOG_DFLT(INFO, "Response: sending code %d, length %d\n", resp_status, resp_len);
+    ble_gatts_find_chr(BLE_UUID16_DECLARE(gatt_svr_scv_fifo_uuid), 
+                                          &gatt_svr_chr_u2fStatus_uuid.u, 
+                                          NULL, &u2f_status_attr_handle);
+    if (u2f_status_attr_handle == 0) {
+        MODLOG_DFLT(INFO, "Response: lookup of handle failed\n");
+        return -1;
+    }
+
+    resp_mesg[0] = resp_status;
+    resp_mesg[1] = resp_len/0x100;
+    resp_mesg[2] = resp_len%0x100;
+    memcpy(&resp_mesg[3], resp_data, resp_len);
+    ble_gattc_write_no_rsp_flat(u2f_connection, u2f_status_attr_handle, resp_mesg, resp_len+3);
+    return 0;
+}
+
+static int
+gatt_svr_send_error(uint8_t error_code)
+{
+    return gatt_svr_send_response(CMD_ERROR, &error_code, 1);
+}
 
 static int
 gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
@@ -201,6 +237,8 @@ gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
     const ble_uuid_t *uuid;
     char buf[BLE_UUID_STR_LEN];
     int rc;
+
+    u2f_connection = conn_handle;
 
     uuid = ctxt->chr->uuid;
 
@@ -295,7 +333,9 @@ gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
             MODLOG_DFLT(INFO, "Did response\n");            
         }
 
-        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        gatt_svr_send_response(CMD_MSG, ctap_resp.data, ctap_resp.length);
+
+        return rc;
     }
 
     if (ble_uuid_cmp(uuid, &gatt_svr_chr_u2fControlPointLength_uuid.u) == 0) {

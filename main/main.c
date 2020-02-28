@@ -25,7 +25,7 @@
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
-#include "console/console.h"
+//#include "console/console.h"
 #include "services/gap/ble_svc_gap.h"
 #include "bleprph.h"
 
@@ -43,19 +43,19 @@ void ble_store_config_init(void);
 static void
 bleprph_print_conn_desc(struct ble_gap_conn_desc *desc)
 {
-    MODLOG_DFLT(INFO, "handle=%d our_ota_addr_type=%d our_ota_addr=",
+    MODLOG_DFLT(DEBUG, "handle=%d our_ota_addr_type=%d our_ota_addr=",
                 desc->conn_handle, desc->our_ota_addr.type);
     print_addr(desc->our_ota_addr.val);
-    MODLOG_DFLT(INFO, " our_id_addr_type=%d our_id_addr=",
+    MODLOG_DFLT(DEBUG, " our_id_addr_type=%d our_id_addr=",
                 desc->our_id_addr.type);
     print_addr(desc->our_id_addr.val);
-    MODLOG_DFLT(INFO, " peer_ota_addr_type=%d peer_ota_addr=",
+    MODLOG_DFLT(DEBUG, " peer_ota_addr_type=%d peer_ota_addr=",
                 desc->peer_ota_addr.type);
     print_addr(desc->peer_ota_addr.val);
-    MODLOG_DFLT(INFO, " peer_id_addr_type=%d peer_id_addr=",
+    MODLOG_DFLT(DEBUG, " peer_id_addr_type=%d peer_id_addr=",
                 desc->peer_id_addr.type);
     print_addr(desc->peer_id_addr.val);
-    MODLOG_DFLT(INFO, " conn_itvl=%d conn_latency=%d supervision_timeout=%d "
+    MODLOG_DFLT(DEBUG, " conn_itvl=%d conn_latency=%d supervision_timeout=%d "
                 "encrypted=%d authenticated=%d bonded=%d\n",
                 desc->conn_itvl, desc->conn_latency,
                 desc->supervision_timeout,
@@ -382,13 +382,13 @@ app_main(void)
     ble_store_config_init();
 
     nimble_port_freertos_init(bleprph_host_task);
-
+#if 0
     /* Initialize command line interface to accept input from user */
     rc = scli_init();
     if (rc != ESP_OK) {
         ESP_LOGE(tag, "scli_init() failed");
     }
-
-    /* test user presence, just pull solo into the binary */
+#endif
+    /* test user presence, just for fun */
     ctap_user_presence_test(10000);
 }
