@@ -27,6 +27,13 @@
 #include "lwip/def.h"
 #include "bleprph.h"
 
+#include "ctap.h"
+#include "u2f.h"
+
+/**
+ * Defines for the Device Information Service
+ */
+
 #define gatt_svr_chr_manufacturer_name_string_uuid 0x2A29
 #define gatt_svr_chr_model_number_string_uuid 0x2A24
 #define gatt_svr_chr_firmware_revision_string_uuid 0x2A26
@@ -35,8 +42,10 @@ const char* manufacturer_name =  "Espressif";
 const char* model_number =  "ESP32";
 const char* firmware_revision = "0.1.0";
 
-#define CONTROL_POINT_LENGTH 256
-const char* u2fServiceRevision = "1.0";
+static int
+gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
+                             struct ble_gatt_access_ctxt *ctxt,
+                             void *arg);
 
 /**
  * Defines from the FIDO Bluetooth Specification v1.0
@@ -58,21 +67,26 @@ static const ble_uuid128_t gatt_svr_chr_u2fControlPointLength_uuid =
                      0xee, 0xec, 0xaa, 0xde, 0xf3, 0xff, 0xd0, 0xf1);
 
 #define gatt_svr_chr_u2fServiceRevision_uuid 0x2A28
-
+#if U2F_SERVICE_REVISION != R1_0
 /* F1D0FFF4-DEAA-ECEE-B42F-C9BA7ED623BB */
 static const ble_uuid128_t gatt_svr_chr_u2fServiceRevisionBitfield_uuid =
     BLE_UUID128_INIT(0xbb, 0x23, 0xd6, 0x7e, 0xba, 0xc9, 0x2f, 0xb4,
                      0xee, 0xec, 0xaa, 0xde, 0xf4, 0xff, 0xd0, 0xf1);
+#endif
 
-static const uint8_t gatt_svr_sec_test_static_val;
+#define CONTROL_POINT_LENGTH 256
+const char* u2fServiceRevision = "1.0";
+#define U2F_SERVICE_REVISION R1_0
+
+#define MAX_COMMAND_LEN 4096
+
+#define CMD_PING        0x81
+#define CMD_KEEPALIVE   0x82
+#define CMD_MSG         0x83
+#define CMD_ERROR       0xbf
 
 static int
 gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
-                             struct ble_gatt_access_ctxt *ctxt,
-                             void *arg);
-
-static int
-gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt,
                              void *arg);
 
@@ -102,13 +116,18 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
                 .uuid = BLE_UUID16_DECLARE(gatt_svr_chr_u2fServiceRevision_uuid),
                 .access_cb = gatt_svr_chr_access_fido,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
-            }, {
+            },
+            /* Spec says: If only version 1.0 is supported, this characteristic SHALL be omitted. */
+#if U2F_SERVICE_REVISION != R1_0
+               {
                 /*** Characteristic: U2F Service Revision Bitfield. */
                 .uuid = &gatt_svr_chr_u2fServiceRevisionBitfield_uuid.u,
                 .access_cb = gatt_svr_chr_access_fido,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC | 
                          BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
-            }, {
+            },
+#endif
+            {
                 0, /* No more characteristics in this service. */
             }
         },
@@ -165,6 +184,15 @@ gatt_svr_chr_write(struct os_mbuf *om, uint16_t min_len, uint16_t max_len,
     return 0;
 }
 
+static uint8_t u2fControlPoint[CONTROL_POINT_LENGTH];
+static uint8_t u2fCommand[MAX_COMMAND_LEN];
+static uint8_t cmd;
+static uint16_t next_frag = 0;
+static uint16_t expected_total_len = 0;
+static uint8_t packet_seqnr = 0;
+static bool expect_fragment = false;
+
+
 static int
 gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
                              struct ble_gatt_access_ctxt *ctxt,
@@ -181,15 +209,93 @@ gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
     /* Determine which characteristic is being accessed by examining its
      * 128-bit UUID.
      */
-
+;
     if (ble_uuid_cmp(uuid, &gatt_svr_chr_u2fControlPoint_uuid.u) == 0) {
         assert(ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR);
+        uint16_t received_len;
+        CTAP_RESPONSE ctap_resp;
 
         rc = gatt_svr_chr_write(ctxt->om,
-                                sizeof gatt_svr_sec_test_static_val,
-                                sizeof gatt_svr_sec_test_static_val,
-                                (void*) &gatt_svr_sec_test_static_val, NULL);
-        return rc;
+                                1,
+                                CONTROL_POINT_LENGTH,
+                                (void*) &u2fControlPoint, &received_len);
+        if (rc != 0) {
+            MODLOG_DFLT(INFO, "Error %d during receive\n", rc);
+            return rc;
+        }
+
+        MODLOG_DFLT(INFO, "Received %d bytes on char u2fControlPoint\n", received_len);
+        MODLOG_DFLT(INFO, "[%d][%d][%d]...\n", u2fControlPoint[0], u2fControlPoint[1], u2fControlPoint[2]);
+
+        if (u2fControlPoint[0] & 0x80)
+        {
+            // Is command
+            cmd = u2fControlPoint[0];
+
+            if (received_len < 3) {
+                MODLOG_DFLT(INFO, "Command too short\n");
+                return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+            }
+            expected_total_len = u2fControlPoint[1] * 0x100 + u2fControlPoint[2];
+            if (expected_total_len > MAX_COMMAND_LEN || (received_len-3) > expected_total_len) {
+                MODLOG_DFLT(INFO, "Command too long\n");
+                return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+            }
+            memcpy(u2fCommand, &u2fControlPoint[3], received_len-3);
+
+            if (expected_total_len > (received_len-3)) {
+                MODLOG_DFLT(INFO, "Expecting fragmented send of %d bytes\n", expected_total_len);
+                next_frag = received_len-3;
+                expect_fragment = true;
+                packet_seqnr = 0;
+                return 0;
+            }
+            // Got complete command
+
+        } else {
+            // Is continuation fragment
+            if (!expect_fragment || u2fCommand[0] != packet_seqnr) {
+                MODLOG_DFLT(INFO, "Fragmentation error: invalid frags\n");
+                packet_seqnr = 0;
+                next_frag = 0;
+                expect_fragment = false;
+                return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;                
+            }
+            uint16_t current_len = next_frag+received_len-1;
+            if (current_len >  expected_total_len) {
+                MODLOG_DFLT(INFO, "Fragmentation error: message too long\n");
+                packet_seqnr = 0;
+                next_frag = 0;
+                expect_fragment = false;
+                return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;                
+            }
+            memcpy(&u2fCommand[next_frag], &u2fControlPoint[1], received_len-1);
+
+            if (current_len < expected_total_len) {
+                // More to come
+                MODLOG_DFLT(INFO, "Received %d/%d bytes\n", current_len, expected_total_len);
+                next_frag = current_len;
+                packet_seqnr++;
+                expect_fragment = true;
+                return 0;
+            }
+            // Got last frag
+        }
+        // Have complete message
+        packet_seqnr = 0;
+        next_frag = 0;
+        expect_fragment = false;
+
+        MODLOG_DFLT(INFO, "Received complete message of %d bytes, cmd: %d\n", expected_total_len, cmd);
+
+        if (cmd == CMD_MSG) {
+            ctap_response_init(&ctap_resp);
+            MODLOG_DFLT(INFO, "Buffer init\n");
+            u2f_request((struct u2f_request_apdu*)u2fCommand, &ctap_resp);
+            MODLOG_DFLT(INFO, "Did response\n");            
+        }
+
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }
 
     if (ble_uuid_cmp(uuid, &gatt_svr_chr_u2fControlPointLength_uuid.u) == 0) {
@@ -206,26 +312,20 @@ gatt_svr_chr_access_fido(uint16_t conn_handle, uint16_t attr_handle,
         rc = os_mbuf_append(ctxt->om, u2fServiceRevision, strlen(u2fServiceRevision));
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
-
+#if U2F_SERVICE_REVISION != R1_0
     if (ble_uuid_cmp(uuid, &gatt_svr_chr_u2fServiceRevisionBitfield_uuid.u) == 0) {
         switch (ctxt->op) {
         case BLE_GATT_ACCESS_OP_READ_CHR:
-            rc = os_mbuf_append(ctxt->om, &gatt_svr_sec_test_static_val,
-                                sizeof gatt_svr_sec_test_static_val);
-            return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+            // tbd
 
         case BLE_GATT_ACCESS_OP_WRITE_CHR:
-            rc = gatt_svr_chr_write(ctxt->om,
-                                    sizeof gatt_svr_sec_test_static_val,
-                                    sizeof gatt_svr_sec_test_static_val,
-                                    (void*) &gatt_svr_sec_test_static_val, NULL);
-            return rc;
-
+            // tbd
         default:
             assert(0);
             return BLE_ATT_ERR_UNLIKELY;
         }
     }
+#endif
 
     /* Unknown characteristic; the nimble stack should not have called this
      * function.
