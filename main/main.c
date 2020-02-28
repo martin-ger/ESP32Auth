@@ -37,25 +37,40 @@ static uint8_t own_addr_type;
 
 void ble_store_config_init(void);
 
+esp_timer_handle_t disconnect_timer;
+
+static void disconnect_timer_callback(void* arg)
+{
+    MODLOG_DFLT(INFO, "Timer disconnect\n");
+    ble_gap_terminate((uint16_t) arg, BLE_ERR_REM_USER_CONN_TERM);
+}
+
+esp_timer_create_args_t disconnect_timer_args = {
+        .callback = &disconnect_timer_callback,
+        /* argument specified here will be passed to timer callback function */
+        .arg = (void*) 0,
+        .name = "disconnect_timer"
+};
+
 /**
  * Logs information about a connection to the console.
  */
 static void
 bleprph_print_conn_desc(struct ble_gap_conn_desc *desc)
 {
-    MODLOG_DFLT(DEBUG, "handle=%d our_ota_addr_type=%d our_ota_addr=",
+    MODLOG_DFLT(INFO, "handle=%d our_ota_addr_type=%d our_ota_addr=",
                 desc->conn_handle, desc->our_ota_addr.type);
     print_addr(desc->our_ota_addr.val);
-    MODLOG_DFLT(DEBUG, " our_id_addr_type=%d our_id_addr=",
+    MODLOG_DFLT(INFO, " our_id_addr_type=%d our_id_addr=",
                 desc->our_id_addr.type);
     print_addr(desc->our_id_addr.val);
-    MODLOG_DFLT(DEBUG, " peer_ota_addr_type=%d peer_ota_addr=",
+    MODLOG_DFLT(INFO, " peer_ota_addr_type=%d peer_ota_addr=",
                 desc->peer_ota_addr.type);
     print_addr(desc->peer_ota_addr.val);
-    MODLOG_DFLT(DEBUG, " peer_id_addr_type=%d peer_id_addr=",
+    MODLOG_DFLT(INFO, " peer_id_addr_type=%d peer_id_addr=",
                 desc->peer_id_addr.type);
     print_addr(desc->peer_id_addr.val);
-    MODLOG_DFLT(DEBUG, " conn_itvl=%d conn_latency=%d supervision_timeout=%d "
+    MODLOG_DFLT(INFO, " conn_itvl=%d conn_latency=%d supervision_timeout=%d "
                 "encrypted=%d authenticated=%d bonded=%d\n",
                 desc->conn_itvl, desc->conn_latency,
                 desc->supervision_timeout,
@@ -162,6 +177,9 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
             rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
             assert(rc == 0);
             bleprph_print_conn_desc(&desc);
+
+            disconnect_timer_args.arg = (void*)event->connect.conn_handle;
+            esp_timer_start_once(disconnect_timer, 30000000);
         }
         MODLOG_DFLT(INFO, "\n");
 
@@ -370,6 +388,7 @@ app_main(void)
 #endif
 #endif
 
+    esp_timer_create(&disconnect_timer_args, &disconnect_timer);
 
     rc = gatt_svr_init();
     assert(rc == 0);
@@ -382,13 +401,13 @@ app_main(void)
     ble_store_config_init();
 
     nimble_port_freertos_init(bleprph_host_task);
-#if 0
+
     /* Initialize command line interface to accept input from user */
     rc = scli_init();
     if (rc != ESP_OK) {
         ESP_LOGE(tag, "scli_init() failed");
     }
-#endif
+
     /* test user presence, just for fun */
     ctap_user_presence_test(10000);
 }

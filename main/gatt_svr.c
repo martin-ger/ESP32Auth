@@ -223,7 +223,7 @@ gatt_svr_send_response(uint8_t resp_status, const uint8_t* resp_data, const uint
     return 0;
 }
 
-static int
+int
 gatt_svr_send_error(uint8_t error_code)
 {
     return gatt_svr_send_response(CMD_ERROR, &error_code, 1);
